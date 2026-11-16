@@ -217,5 +217,114 @@ public class CheckoutServiceTests
     }
 
 
+    //Task 2.1
+    [Fact]
+    public async Task CheckoutAsync_WhenOrderIsValidAndInStock_ShouldSaveOrderAndSendConfirmationOnce()
+    {
+        //Arrange
+        var order = new Order
+        {
+            CustomerName = "Ahmed Ali",
+            CustomerEmail = "ahmed@example.com",
+            Items = new List<OrderItem>
+            {
+                new OrderItem {ProductId = Guid.NewGuid() ,ProductName = "Laptop", Quantity = 1, UnitPrice = 500m },
+                new OrderItem {ProductId = Guid.NewGuid() , ProductName = "Mouse", Quantity = 2, UnitPrice = 100m }
+            }
+        };
+        //Act
+        var receipt =await _sut.CheckoutAsync(order);
 
+        //Assert
+        receipt.Should().NotBeNull();
+        _orderRepoMock.Verify(
+            r => r.SaveAsync(order, It.IsAny<CancellationToken>()), 
+            Times.Once);
+
+
+        _notificationMock.Verify(
+                    n => n.SendOrderConfirmationAsync(receipt, It.IsAny<CancellationToken>()),
+                    Times.Once);
+
+
+    }
+
+    // 2.2: One item is out of stock -> Exception thrown; save and send Times.Never
+    [Fact]
+    public async Task CheckoutAsync_WhenOneItemIsOutOfStock_ShouldThrowInsufficientInventoryExceptionAndNotSaveOrSend()
+    {
+        //Arrange
+        var outOfStockProductId = Guid.NewGuid();
+
+        _inventoryMock
+            .Setup(i => i.IsAvailableAsync(
+            outOfStockProductId,
+            It.IsAny<int>(),
+            It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+
+        var order = new Order
+        {
+            CustomerName = "Ahmed Ali",
+            CustomerEmail = "ahmed@example.com",
+            Items = new List<OrderItem>
+            {
+                new OrderItem {ProductId = Guid.NewGuid() ,ProductName = "Laptop", Quantity = 1, UnitPrice = 500m },
+                new OrderItem {ProductId = outOfStockProductId , ProductName = "Mouse", Quantity = 2, UnitPrice = 100m }
+            }
+        };
+
+        //Act
+        Func<Task> act = async () => await _sut.CheckoutAsync(order);
+
+        //Assert
+        await act.Should().ThrowAsync<InsufficientInventoryException>();
+
+        _orderRepoMock.Verify(
+            r=>r.SaveAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        _notificationMock.Verify(
+            n => n.SendOrderConfirmationAsync(It.IsAny<CheckoutReceipt>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+
+    }
+
+    // 2.3: Order fails validation (e.g. quantity 0) -> Inventory, save and send all Times.Never
+    [Fact]
+    public async Task CheckoutAsync_WhenOrderFailsValidation_ShouldNeverCallInventorySaveOrNotification()
+    {
+        //Arrang
+        var order = new Order
+        {
+            CustomerName = "Ahmed Ali",
+            CustomerEmail = "ahmed@example.com",
+            Items = new List<OrderItem>
+            {
+                new OrderItem {ProductId = Guid.NewGuid() ,ProductName = "Laptop", Quantity = 0, UnitPrice = 500m },
+            }
+        };
+        //Act 
+        Func <Task> act = async()=> await _sut.CheckoutAsync(order);
+
+        //Assert 
+        await act.Should().ThrowAsync<InvalidQuantityException>();
+        _inventoryMock.Verify(
+            i => i.IsAvailableAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        _orderRepoMock.Verify(
+            o=>o.SaveAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()),
+            Times.Never
+            );
+
+        _notificationMock.Verify(
+            n => n.SendOrderConfirmationAsync(It.IsAny<CheckoutReceipt>(), It.IsAny<CancellationToken>()),
+            Times.Never
+
+            );
+
+    }
 }
