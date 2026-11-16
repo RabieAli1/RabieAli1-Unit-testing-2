@@ -4,6 +4,7 @@ using Simulation.Checkout.Application;
 using Simulation.Checkout.Application.Abstractions;
 using Simulation.Checkout.Domain;
 using Simulation.Checkout.Domain.Exceptions;
+using Simulation.Checkout.Tests.TestData;
 using Xunit;
 
 namespace Simulation.Checkout.Tests;
@@ -306,6 +307,7 @@ public class CheckoutServiceTests
                 new OrderItem {ProductId = Guid.NewGuid() ,ProductName = "Laptop", Quantity = 0, UnitPrice = 500m },
             }
         };
+
         //Act 
         Func <Task> act = async()=> await _sut.CheckoutAsync(order);
 
@@ -322,9 +324,46 @@ public class CheckoutServiceTests
 
         _notificationMock.Verify(
             n => n.SendOrderConfirmationAsync(It.IsAny<CheckoutReceipt>(), It.IsAny<CancellationToken>()),
-            Times.Never
+            Times.Never);
 
-            );
+    }
 
+    // 3.1: AutoFixture creates the order (Quantity > 0, Price >= 0) -> Checkout succeeds
+    [Fact]
+    public async Task CheckoutAsync_WhenOrderIsGeneratedByAutoFixtureWithValidConstraints_ShouldSucceed()
+
+    {
+        //Arrang
+        var order = OrderTestDataHelper.CreateValidOrderWithAutoFixture();
+
+        //Act
+        var receipt =await _sut.CheckoutAsync(order);
+        // Assert
+        receipt.Should().NotBeNull();
+        receipt.Total.Should().BeGreaterThanOrEqualTo(0m);
+    }
+
+    // 3.2: Bogus creates a realistic customer (name, email) with a fixed seed -> Receipt has same name & email
+    [Fact]
+    public async Task CheckoutAsync_WhenCustomerIsGeneratedByBogusWithFixedSeed_ShouldIncludeCustomerDetailsInReceipt()
+    {
+        //Arrange
+        var (customerName, customerEmail) = OrderTestDataHelper.CreateRealisticCustomer(seed: 2026);
+        var order = new Order
+        {
+            CustomerName = customerName,
+            CustomerEmail = customerEmail,
+            Items = new List<OrderItem>
+            {
+                new OrderItem {ProductId=Guid.NewGuid(),  ProductName = "Monitor", Quantity = 1, UnitPrice = 300m }
+            }
+        };
+
+        //Act
+        var receipt = await _sut.CheckoutAsync(order);
+
+        //Assert
+        receipt.CustomerName.Should().Be(customerName);
+        receipt.CustomerEmail.Should().Be(customerEmail);
     }
 }
